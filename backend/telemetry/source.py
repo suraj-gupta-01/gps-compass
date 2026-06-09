@@ -69,7 +69,7 @@ class UartTelemetrySource(BaseTelemetrySource):
 
     Configure SERIAL_PORT and BAUD_RATE to match your microcontroller.
     """
-    SERIAL_PORT = '/dev/ttyAMA0'   # Raspberry Pi UART0
+    SERIAL_PORT = '/dev/ttyACM0'   # Raspberry Pi UART0
     BAUD_RATE   = 115200
 
     def __init__(self):
