@@ -10,12 +10,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from navigation.engine import NavigationEngine
-from telemetry.source import MockTelemetrySource  # swap for UartTelemetrySource on hardware
+from telemetry.source import MockTelemetrySource
+from telemetry.source import UartTelemetrySource
 from api.routes import router, set_engine
 
 # ── Choose telemetry source ────────────────────────────────────────────────────
 # For real hardware: replace MockTelemetrySource() with UartTelemetrySource()
-telemetry_source = MockTelemetrySource()
+#telemetry_source = MockTelemetrySource()
+telemetry_source = UartTelemetrySource()
 engine = NavigationEngine(telemetry_source)
 
 @asynccontextmanager
