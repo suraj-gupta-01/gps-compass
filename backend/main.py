@@ -5,19 +5,19 @@ Run:
     cd backend
     uvicorn main:app --host 0.0.0.0 --port 8000
 
-Telemetry source  → change MockTelemetrySource to UartTelemetrySource for real hardware
-Motor commands    → set MOCK_MODE = False in navigation/motor_writer.py
+Telemetry source  → set AERONAV_USE_REAL_TELEMETRY=1 for real hardware (USB-RS232)
+Motor commands    → set AERONAV_MOTOR_MOCK=0 in environment for real hardware
 RC monitor        → set MOCK_MODE = False in telemetry/rc_monitor.py, wire GPIO 17
 
-UART port assignments on Raspberry Pi 5:
-  /dev/ttyAMA0   GPS + compass   IN   (STM32 TX → Pi RX)
-  /dev/ttyAMA2   Motor commands  OUT  (Pi TX → STM32 RX)
-  GPIO 17        RC mode detect  IN   (RC receiver CH5 → Pi GPIO)
+Port assignments:
+  /dev/ttyAMA0    Motor commands  OUT  (Pi TX → Arduino RX)
+  /dev/ttyUSBx    GPS + compass   IN   (STM32 → USB-RS232 → Pi USB)
+  GPIO 17         RC mode detect  IN   (RC receiver CH5 → Pi GPIO)
 
-Enable ttyAMA2 by adding to /boot/firmware/config.txt:
-  dtoverlay=uart2
+Configure AERONAV_GPS_PORT env var for a stable USB-serial path (or udev symlink).
 """
 
+import os
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -26,7 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from navigation.engine import NavigationEngine
 from navigation.kinematics import VesselConfig
-from telemetry.source import MockTelemetrySource   # ← swap for UartTelemetrySource
+from telemetry.source import MockTelemetrySource, UartTelemetrySource
 from telemetry.rc_monitor import RCMonitor
 from api.routes import router, set_engine, set_rc_monitor
 from utils.logger import log
@@ -44,9 +44,8 @@ vessel_cfg = VesselConfig(
 )
 
 # ── Sources ────────────────────────────────────────────────────────────────────
-telemetry_source = MockTelemetrySource()
-# from telemetry.source import UartTelemetrySource
-# telemetry_source = UartTelemetrySource()
+USE_REAL_TELEMETRY = os.environ.get('AERONAV_USE_REAL_TELEMETRY', '0') == '1'
+telemetry_source = UartTelemetrySource() if USE_REAL_TELEMETRY else MockTelemetrySource()
 
 engine     = NavigationEngine(telemetry_source, config=vessel_cfg)
 rc_monitor = RCMonitor(engine)   # GPIO mock=True by default

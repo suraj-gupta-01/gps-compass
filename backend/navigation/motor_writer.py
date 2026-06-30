@@ -1,10 +1,11 @@
 """
-MotorCommandWriter — sends motor commands to the STM32 over UART.
+MotorCommandWriter — sends motor commands to the Arduino over UART.
 
 Protocol
 ────────
-The Pi sends one ASCII line per navigation tick (10 Hz) over a dedicated
-UART port.  The STM32 parses the line and drives the motor ESCs/drivers.
+The Pi sends one ASCII line per navigation tick (10 Hz) over the Pi's
+GPIO UART (/dev/ttyAMA0).  The Arduino parses the line and drives the
+motor ESCs/drivers.
 
 Frame format (PWM microseconds — standard RC servo protocol):
     CMD,<left_us>,<right_us>\n
@@ -20,24 +21,23 @@ Examples:
     CMD,1000,1000\n   →  full reverse (emergency)
 
 Why PWM microseconds?
-  - Direct mapping to STM32 timer compare register values
-  - Same format produced by RC receivers → STM32 firmware needs zero changes
-    if you later add RC override passthrough at the STM32 level
+  - Direct mapping to Arduino PWM output values
+  - Same format produced by RC receivers → Arduino sketch needs zero changes
+    if you later add RC override passthrough at the Arduino level
   - Standard across ESCs, brushed motor drivers, and servo controllers
   - Human-readable and easy to debug with a serial monitor
 
 Hardware wiring
 ───────────────
-  Pi UART TX (GPIO 14 on UART0, or overlay pin for AMA2-5)
-      └──────────────────────► STM32 USART RX
-  Pi GND ──────────────────── STM32 GND
+  Pi UART TX (GPIO 14 on UART0, /dev/ttyAMA0)
+      └──────────────────────► Arduino UART RX
+  Pi UART RX (GPIO 15 on UART0)
+      ◄─────────────────────── Arduino UART TX (optional, for status)
+  Pi GND ──────────────────── Arduino GND
 
-  Use a second Pi UART for motor commands so GPS/compass UART is undisturbed:
-    GPS/Compass  ← /dev/ttyAMA0  (Pi RX ← STM32 TX)
-    Motor cmds   → /dev/ttyAMA2  (Pi TX → STM32 RX)
-
-  Enable ttyAMA2 on Pi 5 by adding to /boot/firmware/config.txt:
-    dtoverlay=uart2
+  The Pi's single GPIO UART (/dev/ttyAMA0) is now dedicated to the motor link.
+  Telemetry (GPS/compass) arrives via a separate USB-RS232 adapter — see
+  backend/telemetry/README_RS232.md.
 
 Mapping from navigation outputs to PWM
 ───────────────────────────────────────
@@ -65,42 +65,43 @@ MANUAL mode (software override from dashboard):
 STOP / IDLE:
   CMD,1500,1500\n
 
-STM32 expected behaviour
-─────────────────────────
-The STM32 should:
-  1. Parse the CMD line with sscanf: sscanf(buf, "CMD,%d,%d", &left, &right)
+Arduino expected behaviour
+───────────────────────────
+The Arduino should:
+  1. Parse the CMD line with Serial.parseInt():
+        left  = Serial.parseInt();
+        right = Serial.parseInt();
   2. Validate 1000 ≤ left,right ≤ 2000
-  3. Apply to motor driver/ESC:
-       TIM_SetCompare(left_channel,  left_us);
-       TIM_SetCompare(right_channel, right_us);
+  3. Apply to motor driver/ESC via standard Arduino PWM output (analogWrite)
   4. Implement a watchdog: if no CMD received for >300ms → set both to 1500 (stop)
-     This is critical — if the Pi crashes or UART disconnects, the STM32 must
+     This is critical — if the Pi crashes or UART disconnects, the Arduino must
      not continue executing the last command.
 
 Failsafe watchdog note
 ──────────────────────
-The STM32-side watchdog is NOT implemented here — it must be in the STM32 firmware.
-This is by design: the Pi cannot guarantee the STM32 received a stop command if
-the Pi itself crashes.  The STM32 must independently time out and stop.
+The Arduino-side watchdog is NOT implemented here — it must be in the Arduino sketch.
+This is by design: the Pi cannot guarantee the Arduino received a stop command if
+the Pi itself crashes.  The Arduino must independently time out and stop.
 """
 
+import os
 import asyncio
 from utils.logger import log
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-MOTOR_UART_PORT  = '/dev/ttyAMA2'   # Pi TX → STM32 RX
+MOTOR_UART_PORT  = '/dev/ttyAMA0'   # Pi TX → Arduino RX
 MOTOR_UART_BAUD  = 115200
 PWM_STOP         = 1500             # microseconds — neutral/stop
 PWM_MIN          = 1000             # full reverse
 PWM_MAX          = 2000             # full forward
-MOCK_MODE        = True             # set False on real Pi hardware
+MOCK_MODE        = os.environ.get('AERONAV_MOTOR_MOCK', '1') == '1'  # set AERONAV_MOTOR_MOCK=0 on real hardware
 
 
 class MotorCommandWriter:
     """
     Serialises navigation outputs (omega, speed) or manual motor state
-    into PWM microsecond commands and sends them to the STM32 over UART.
+    into PWM microsecond commands and sends them to the Arduino over UART.
 
     Thread-safety: all writes happen in asyncio executor to avoid blocking
     the navigation loop.
@@ -217,7 +218,7 @@ class MotorCommandWriter:
             await loop.run_in_executor(None, self._write_sync, left_us, right_us)
         except Exception as e:
             log.warning("Motor UART write error", exc=str(e))
-            # Non-fatal: STM32 watchdog will stop motors if commands stop arriving
+            # Non-fatal: Arduino watchdog will stop motors if commands stop arriving
 
     async def stop(self):
         """Send stop command (both 1500)."""

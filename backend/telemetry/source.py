@@ -15,11 +15,13 @@ Hardening applied to UartTelemetrySource vs the previous version:
 4. GPS + compass filters are applied HERE so the engine always receives
    clean, filtered values regardless of source.
 
-To switch to real hardware: change MockTelemetrySource → UartTelemetrySource
-in main.py.  Nothing else changes.
+To switch to real hardware: set AERONAV_USE_REAL_TELEMETRY=1 env var.
+The UartTelemetrySource port is configured via AERONAV_GPS_PORT (default /dev/ttyUSB0).
+Nothing else changes.
 """
 
 import math
+import os
 import time
 import asyncio
 from abc import ABC, abstractmethod
@@ -86,7 +88,7 @@ class MockTelemetrySource(BaseTelemetrySource):
 
 class UartTelemetrySource(BaseTelemetrySource):
     """
-    Reads GPS + compass from a microcontroller over UART.
+    Reads GPS + compass from a microcontroller over a USB-serial (RS232) link.
 
     Expected format (one line per update, 10 Hz recommended):
         LAT,LNG,HEADING\n
@@ -99,16 +101,23 @@ class UartTelemetrySource(BaseTelemetrySource):
       - Compass EMA filter (alpha configurable)
       - GPS outlier rejection filter
 
-    Configure SERIAL_PORT and BAUD_RATE to match your hardware.
+    The serial port is configurable via the `port` constructor argument
+    or the AERONAV_GPS_PORT env var (default: /dev/ttyUSB0).
+    Baud rate is configurable via `baud` or AERONAV_GPS_BAUD env var (default: 115200).
     """
 
-    SERIAL_PORT    = '/dev/ttyAMA0'
     BAUD_RATE      = 115200
     UART_TIMEOUT_S = 2.0          # seconds before declaring timeout
     RECONNECT_DELAY_S = 3.0       # initial reconnect wait
     MAX_RECONNECT_DELAY_S = 30.0  # cap backoff at 30s
 
-    def __init__(self, compass_alpha: float = 0.3, max_gps_jump_m: float = 25.0):
+    def __init__(self,
+                 port: str = '/dev/ttyUSB0',
+                 baud: int = 115200,
+                 compass_alpha: float = 0.3,
+                 max_gps_jump_m: float = 25.0):
+        self._port = os.environ.get('AERONAV_GPS_PORT', port)
+        self._baud = int(os.environ.get('AERONAV_GPS_BAUD', str(baud)))
         self._ser = None
         self._compass_filter = CompassFilter(alpha=compass_alpha)
         self._gps_filter     = GpsFilter(max_jump_m=max_gps_jump_m)
@@ -119,15 +128,16 @@ class UartTelemetrySource(BaseTelemetrySource):
         try:
             import serial
             self._ser = serial.Serial(
-                self.SERIAL_PORT,
-                self.BAUD_RATE,
+                self._port,
+                self._baud,
                 timeout=self.UART_TIMEOUT_S,
             )
             self._reconnect_delay = self.RECONNECT_DELAY_S  # reset backoff
-            log.info("UART connected", port=self.SERIAL_PORT, baud=self.BAUD_RATE)
+            log.info("UART connected", port=self._port, baud=self._baud)
         except Exception as e:
             self._ser = None
-            log.error("UART connect failed", exc=str(e), port=self.SERIAL_PORT)
+            log.error("GPS serial port not found", port=self._port, exc=str(e),
+                      hint="check `ls /dev/ttyUSB*` and USB-RS232 adapter connection")
 
     async def _reconnect(self):
         log.warning("UART reconnecting", delay_s=self._reconnect_delay)
