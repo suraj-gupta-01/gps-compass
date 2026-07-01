@@ -204,8 +204,8 @@ class PurePursuitController:
         ratio = omega / max_rate if max_rate > 0 else 0
         if abs(ratio) < 0.15:
             return 'forward'
-        if abs(ratio) < 0.55:
-            return 'turn_right' if omega > 0 else 'turn_left'
+        # Merged duplicate branch: original had separate < 0.55 and < 0.90
+        # conditions returning identical values.
         if abs(ratio) < 0.90:
             return 'turn_right' if omega > 0 else 'turn_left'
         return 'large_correction'

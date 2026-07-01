@@ -163,7 +163,7 @@ class UartTelemetrySource(BaseTelemetrySource):
         return lat, lng, hdg % 360
 
     async def read(self) -> TelemetryReading:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             raw_line = await loop.run_in_executor(None, self._readline_sync)

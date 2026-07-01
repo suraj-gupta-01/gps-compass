@@ -1,5 +1,18 @@
 """
-AeroNav Mission Execution Backend
+AeroNav Mission Execution Backend.
+
+What it does:
+    Creates the FastAPI app, NavigationEngine, telemetry source, RC monitor,
+    REST routes, WebSocket route, and AeroSim HIL bridge.
+
+Imports from:
+    FastAPI/CORS/asyncio, navigation.engine, navigation.kinematics,
+    telemetry.source, telemetry.rc_monitor, api.routes, api.sim_bridge,
+    utils.logger.
+
+Behavior:
+    Existing backend startup behavior is preserved; including sim_router is
+    additive and exposes passive /api/sim/* HIL endpoints.
 
 Run:
     cd backend
@@ -29,6 +42,7 @@ from navigation.kinematics import VesselConfig
 from telemetry.source import MockTelemetrySource   # ← swap for UartTelemetrySource
 from telemetry.rc_monitor import RCMonitor
 from api.routes import router, set_engine, set_rc_monitor
+from api.sim_bridge import sim_router
 from utils.logger import log
 
 # ── Vessel configuration ───────────────────────────────────────────────────────
@@ -84,3 +98,4 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(sim_router)

@@ -47,6 +47,12 @@ class StructuredLogger:
         except Exception:
             pass   # Never let logging crash the navigation loop
 
+        # Also print a concise log line to stdout for terminal visibility
+        try:
+            print(f"[{level}] {time.strftime('%Y-%m-%d %H:%M:%S')} - {msg}")
+        except Exception:
+            pass
+
     def debug(self, msg: str, **kw):   self._write('DEBUG',   msg, **kw)
     def info(self,  msg: str, **kw):   self._write('INFO',    msg, **kw)
     def warning(self, msg: str, **kw): self._write('WARNING', msg, **kw)

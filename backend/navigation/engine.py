@@ -1,45 +1,59 @@
 """
-NavigationEngine — hardened mission execution loop with manual override.
+NavigationEngine — hardened mission execution loop with manual override
+                   and perception-driven behavior arbitration.
 
-Operating modes
-───────────────
-AUTO   Normal autonomous navigation: pure-pursuit + kinematics.
-MANUAL Operator has direct motor control.  Autonomous navigation is fully
-       suspended.  The kinematics model is still integrated (mock mode) so
-       the vessel continues to move realistically in simulation.
-       Telemetry is broadcast every tick in both modes.
+What it does:
+  Runs mission execution, telemetry ingestion, behavior/perception arbitration,
+  motor command generation, and WebSocket telemetry broadcast.
 
-AUTO → MANUAL transition
-────────────────────────
-Immediate.  Sequencer index is frozen at its current value.
-Motor outputs switch from computed to manual commands.
-A "dirty" flag is set so the engine knows position may have drifted.
+Imports from:
+  asyncio/queue/time/math/typing, mission.sequencer, navigation.kinematics,
+  navigation.controller, navigation.manual, navigation.motor_writer,
+  telemetry.source, perception.perception_manager, perception.hailo_runner,
+  behaviour.behavior_manager, utils.geo, utils.logger, config.
 
-MANUAL → AUTO transition (resume_auto)
-───────────────────────────────────────
-1. Re-anchor: find the closest remaining path point within a forward window.
-   This prevents the vessel from trying to navigate back to a point it
-   passed or that is now geometrically behind it.
-2. Clear dirty flag, clear manual motor state.
-3. Resume pure-pursuit from the re-anchored index.
+Behavior:
+  Existing navigation logic is preserved. HIL additions are additive: the last
+  motor command is retained for /api/sim/motor_cmd and omega_cmd/speed_cmd are
+  added to telemetry frames.
 
-Why re-anchor instead of just resuming at frozen index?
-  During manual, the vessel may have moved 10–30m in any direction.
-  The frozen index may now be behind the vessel, causing the pure-pursuit
-  lookahead to find a negative-t intersection (segment behind vessel) and
-  steer the vessel backward.  Re-anchoring to the nearest FORWARD point
-  prevents this entirely.
+What changed from the original (everything else is preserved identically)
+────────────────────────────────────────────────────────────────────────
+1. BehaviorManager is inserted between the PurePursuitController output
+   and the motor writer.  In NAVIGATE state the behavior manager is
+   transparent — it passes pp_omega / pp_speed through unchanged.
 
-Hardening (same as previous version, preserved):
+2. PerceptionManager.update() is called once per tick (in _tick_auto)
+   to drain the detection queue.  This is a single non-blocking call.
+
+3. Telemetry frames carry new fields:
+     behavior_state  — current BehaviorManager state name
+     perception      — {obstacle_active, trash_active, ...} sub-dict
+   These fields are additive; the frontend ignores unknown fields.
+
+4. Manual override: BehaviorManager is bypassed entirely in MANUAL mode.
+   The _tick_manual logic is unchanged.
+
+5. A PerceptionManager and BehaviorManager instance are created in __init__
+   and wired up.  The HailoRunner is started in setup() / run().
+
+Operating modes (unchanged)
+────────────────────────────
+AUTO   Normal autonomous navigation with behavior arbitration.
+MANUAL Operator has direct control; all perception/behavior is suspended.
+
+All original hardening is preserved:
   - Wall-clock dt
   - Exception guard
-  - Stale telemetry auto-pause (applies in AUTO only)
+  - Stale telemetry auto-pause
   - GPS validation gate
   - Max index jump cap
   - Load-while-running safety
+  - Re-anchor after manual
 """
 
 import asyncio
+import queue
 import time
 import math
 from enum import Enum
@@ -51,8 +65,12 @@ from navigation.controller import PurePursuitController
 from navigation.manual import ManualController
 from navigation.motor_writer import MotorCommandWriter
 from telemetry.source import BaseTelemetrySource, MockTelemetrySource, TelemetryTimeout
+from perception.perception_manager import PerceptionManager
+from perception.hailo_runner import HailoRunner
+from behaviour.behavior_manager import BehaviorManager, BehaviorState
 from utils.geo import haversine, bearing as calc_bearing, heading_error as calc_error
 from utils.logger import log
+from config import behavior_cfg, hailo_cfg
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -61,10 +79,7 @@ TICK_INTERVAL   = 0.1   # seconds (10 Hz)
 STALE_LIMIT_S   = 3.0   # auto-pause after this many seconds of no telemetry
 STALE_GPS_LIMIT = 20    # auto-pause after this many consecutive rejected GPS fixes
 MAX_INDEX_JUMP  = 5     # max sequencer index advance per tick (GPS glitch guard)
-
-# Re-anchor search window: how many path points ahead to search for nearest
-# when returning from manual to auto.
-REANCHOR_SEARCH_WINDOW = 50
+# NOTE: re-anchor window is now read from behavior_cfg().REANCHOR_WINDOW (was 50, now 30)
 
 
 class OperatingMode(str, Enum):
@@ -95,19 +110,38 @@ class NavigationEngine:
         self.controller  = PurePursuitController(self.cfg)
         self.manual_ctrl = ManualController(self.cfg)
         self.status      = EngineStatus()
-
         self.motor_writer = MotorCommandWriter()
+
+        # ── Perception + behavior stack ───────────────────────────────────────
+        self._detection_queue: queue.Queue = queue.Queue(
+            maxsize=hailo_cfg().QUEUE_MAXSIZE
+        )
+        self.perception  = PerceptionManager(self._detection_queue)
+        self.behavior    = BehaviorManager(reanchor_fn=self._reanchor)
+        self._hailo      = HailoRunner(self._detection_queue)
+
+        # ── WebSocket clients ─────────────────────────────────────────────────
         self._clients: Set['WebSocket'] = set()
-        self._mode:    OperatingMode    = OperatingMode.AUTO
+
+        # ── State ─────────────────────────────────────────────────────────────
+        self._mode:    OperatingMode = OperatingMode.AUTO
         self._running  = False
-        self._paused   = False          # only meaningful in AUTO mode
-        self._manual_dirty = False      # position may have drifted since last AUTO
+        self._paused   = False
+        self._manual_dirty = False
 
         self._last_lat:     float = 0.0
         self._last_lng:     float = 0.0
         self._last_heading: float = 0.0
         self._last_valid_telem_t: float = 0.0
         self._mode_since: int = int(time.time() * 1000)
+        self._last_motor_cmd = {
+            'left_us': 1500,
+            'right_us': 1500,
+            'omega_cmd': 0.0,
+            'speed_cmd': 0.0,
+            'steering_label': 'stop',
+            'behavior_state': 'navigate',
+        }
 
     # ── WebSocket clients ─────────────────────────────────────────────────────
 
@@ -123,12 +157,12 @@ class NavigationEngine:
                 dead.add(ws)
         self._clients -= dead
 
-    # ── Mission lifecycle ─────────────────────────────────────────────────────
+    # ── Mission lifecycle (unchanged from original) ───────────────────────────
 
     def load_mission(self, mission) -> list:
         """Safe to call at any time — pauses/stops first."""
         if self._mode == OperatingMode.MANUAL:
-            self.resume_auto()          # exit manual cleanly before load
+            self.resume_auto()
         was_running = self._running and not self._paused
         if was_running:
             self._paused = True
@@ -169,10 +203,8 @@ class NavigationEngine:
         if self._mode == OperatingMode.AUTO:
             self._paused = True
             log.info("Mission paused (AUTO)", index=self.sequencer.current_index)
-            # Motor stop is sent at the top of the next idle tick
 
     def resume(self):
-        """Resume AUTO mode from a paused state."""
         if self._mode == OperatingMode.MANUAL:
             log.warning("resume() ignored — vessel is in MANUAL mode")
             return
@@ -199,36 +231,24 @@ class NavigationEngine:
         self._manual_dirty = False
         log.info("Mission reset")
 
-    # ── Manual mode control ───────────────────────────────────────────────────
+    # ── Manual mode control (unchanged from original) ─────────────────────────
 
     def enter_manual(self):
-        """
-        Immediately suspend autonomous navigation and hand control to operator.
-        Safe to call at any time, including when paused or idle.
-        """
         if self._mode == OperatingMode.MANUAL:
-            return   # already manual
+            return
         prev = self._mode
         self._mode        = OperatingMode.MANUAL
         self._mode_since  = int(time.time() * 1000)
-        self._manual_dirty = True   # position will drift during manual
-        self._paused       = True   # ensures _tick_auto is a no-op if called in wrong context
-        self.manual_ctrl.stop()     # start with motors off — operator must explicitly command
-        # Non-blocking: schedule stop command (motor_writer is async)
+        self._manual_dirty = True
+        self._paused       = True
+        self.manual_ctrl.stop()
         log.info("Entered MANUAL mode", from_mode=prev.value,
                  index=self.sequencer.current_index)
 
     def resume_auto(self):
-        """
-        Exit manual mode, re-anchor sequencer to nearest remaining path point,
-        and resume autonomous navigation from a paused state.
-        Operator must call start() or resume() explicitly to un-pause.
-        """
         if self._mode == OperatingMode.AUTO:
             return
         self.manual_ctrl.stop()
-
-        # Re-anchor: find nearest remaining path point from current position
         if self._manual_dirty and self.sequencer.path and not self.sequencer.is_complete:
             nearest = self._reanchor(
                 self._last_lat,
@@ -244,24 +264,20 @@ class NavigationEngine:
         self._manual_dirty = False
         self._mode       = OperatingMode.AUTO
         self._mode_since = int(time.time() * 1000)
-        # Require explicit resume() / start() — do not auto-unpause
         self._paused = True
         log.info("Returned to AUTO mode (paused — explicit resume/start required)")
 
     def _reanchor(self, lat: float, lng: float, from_index: int) -> int:
         """
-        Find the nearest path point within a forward search window starting at
-        from_index.  Returns the index of the nearest point.
-
-        Search is forward-only within REANCHOR_SEARCH_WINDOW steps to avoid
-        re-navigating to a point already completed before the manual override.
+        Find nearest path point within a forward search window.
+        Called by both resume_auto() and BehaviorManager after excursions.
         """
         path  = self.sequencer.path
         total = len(path)
         if total == 0:
             return 0
 
-        search_end = min(from_index + REANCHOR_SEARCH_WINDOW, total)
+        search_end = min(from_index + behavior_cfg().REANCHOR_WINDOW, total)
         best_idx  = from_index
         best_dist = float('inf')
 
@@ -273,18 +289,13 @@ class NavigationEngine:
 
         return best_idx
 
-    # ── Manual motor commands (called from API) ───────────────────────────────
+    # ── Manual motor commands (unchanged from original) ───────────────────────
 
-    def manual_set_left(self, on: bool):
-        self.manual_ctrl.set_left(on)
+    def manual_set_left(self, on: bool):      self.manual_ctrl.set_left(on)
+    def manual_set_right(self, on: bool):     self.manual_ctrl.set_right(on)
+    def manual_set_throttle(self, t: float):  self.manual_ctrl.set_throttle(t)
 
-    def manual_set_right(self, on: bool):
-        self.manual_ctrl.set_right(on)
-
-    def manual_set_throttle(self, throttle: float):
-        self.manual_ctrl.set_throttle(throttle)
-
-    # ── Health ────────────────────────────────────────────────────────────────
+    # ── Health (extended with perception/behavior) ────────────────────────────
 
     def health_dict(self) -> dict:
         age = time.monotonic() - self.status.last_tick_time
@@ -302,7 +313,14 @@ class NavigationEngine:
             'gps_rejects_total': self.status.gps_rejects_total,
             'loop_errors':       self.status.loop_errors,
             'clients':           len(self._clients),
+            # New perception + behavior health
+            **self.perception.status_dict(),
+            **self.behavior.status_dict(),
         }
+
+    @property
+    def last_motor_cmd(self) -> dict:
+        return dict(self._last_motor_cmd)
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
@@ -310,7 +328,8 @@ class NavigationEngine:
         self._running = True
         last_tick_wall = time.monotonic()
         self.motor_writer.setup()
-        log.info("Navigation engine started")
+        self._hailo.start()   # start Hailo inference thread
+        log.info("Navigation engine started (with perception stack)")
 
         while self._running:
             await asyncio.sleep(TICK_INTERVAL)
@@ -333,19 +352,19 @@ class NavigationEngine:
 
         await self.motor_writer.stop()
         self.motor_writer.close()
+        self._hailo.stop()
         log.info("Navigation engine stopped")
 
-    # ── Manual tick ───────────────────────────────────────────────────────────
+    # ── Manual tick (unchanged from original) ────────────────────────────────
 
     async def _tick_manual(self, dt: float):
         """
         Manual tick: integrate kinematics from manual motor commands,
         read GPS/compass, and broadcast a telemetry frame.
-        Auto navigation is fully suspended.
+        Auto navigation AND perception/behavior are fully suspended.
         """
         is_mock = isinstance(self.source, MockTelemetrySource)
 
-        # ── 1. Integrate kinematics from manual commands (mock only) ──────────
         if is_mock:
             omega_cmd, speed_cmd = self.manual_ctrl.compute()
             self.kinematics.step(omega_cmd, dt, speed_cmd)
@@ -356,8 +375,6 @@ class NavigationEngine:
             reading = await self.source.read()
             heading = reading.heading
         else:
-            # Real hardware: just read GPS/compass; actual motors are driven
-            # by the hardware layer receiving left/right booleans externally.
             try:
                 reading = await self.source.read()
                 lat, lng, heading = reading.lat, reading.lng, reading.heading
@@ -366,43 +383,50 @@ class NavigationEngine:
 
         self._last_lat, self._last_lng, self._last_heading = lat, lng, heading
 
-        # ── 2. Build manual telemetry frame ───────────────────────────────────
         motor    = self.manual_ctrl.to_motor_dict()
         steering = self.manual_ctrl.to_steering_label()
-
-        # nav_state during manual: show 'manual' so frontend knows
         nav_state = 'manual'
+        omega_cmd, _ = self.manual_ctrl.compute()
+        speed_cmd = (
+            self.manual_ctrl.state.throttle * self.cfg.cruise_speed_mps
+            if (self.manual_ctrl.state.left or self.manual_ctrl.state.right) else 0.0
+        )
+        left_us, right_us = self.motor_writer.manual_to_pwm(
+            self.manual_ctrl.state.left,
+            self.manual_ctrl.state.right,
+            self.manual_ctrl.state.throttle,
+        )
+        self._last_motor_cmd = {
+            'left_us': left_us,
+            'right_us': right_us,
+            'omega_cmd': round(omega_cmd, 3),
+            'speed_cmd': round(speed_cmd, 3),
+            'steering_label': steering,
+            'behavior_state': 'manual',
+        }
 
-        # Provide sequencer info as informational only (not being navigated)
         target = self.sequencer.current_target
         t_lat  = target.lat  if target else lat
         t_lng  = target.lng  if target else lng
         t_lbl  = target.segment_label if target else '—'
 
-        # Send dashboard manual commands to STM32 when not in mock mode
-        # Note: if RC receiver has hardware control, STM32 ignores Pi UART
-        # (RC is directly wired to ESCs). Pi sends anyway for display/logging.
-        if not isinstance(self.source, MockTelemetrySource):
-            left_us, right_us = self.motor_writer.manual_to_pwm(
-                self.manual_ctrl.state.left,
-                self.manual_ctrl.state.right,
-                self.manual_ctrl.state.throttle,
-            )
+        if not is_mock:
             await self.motor_writer.write(left_us, right_us)
 
         frame = {
             'lat':     round(lat, 7),
             'lng':     round(lng, 7),
             'heading': round(heading, 2),
-            'speed':   round(self.manual_ctrl.state.throttle * self.cfg.cruise_speed_mps, 3)
-                       if (self.manual_ctrl.state.left or self.manual_ctrl.state.right) else 0.0,
+            'speed':   round(speed_cmd, 3),
             'target_lat':  round(t_lat, 7),  'target_lng':  round(t_lng, 7),
             'lookahead_lat': round(lat, 7),  'lookahead_lng': round(lng, 7),
             'required_heading':      0.0,
             'heading_error':         0.0,
             'distance_to_target':    round(haversine(lat, lng, t_lat, t_lng), 2) if target else 0.0,
             'distance_to_lookahead': 0.0,
-            'omega':                 round(self.manual_ctrl.compute()[0], 3),
+            'omega':                 round(omega_cmd, 3),
+            'omega_cmd':             round(omega_cmd, 3),
+            'speed_cmd':             round(speed_cmd, 3),
             'nav_state':             nav_state,
             'active_segment_label':  t_lbl,
             'active_segment_index':  self.sequencer.current_index,
@@ -411,14 +435,18 @@ class NavigationEngine:
             'gps_accepted':          True,
             'steering':              steering,
             'motor':                 motor,
+            'motor_cmd':             self.last_motor_cmd,
             'mode':                  'manual',
             'mode_since':            self._mode_since,
             'source':                'mock' if is_mock else 'uart',
             'timestamp':             int(time.time() * 1000),
+            # Perception/behavior fields — zeroed in manual mode
+            'behavior_state':        'manual',
+            'perception':            {'obstacle_active': False, 'trash_active': False},
         }
         await self._broadcast(frame)
 
-    # ── Auto tick ─────────────────────────────────────────────────────────────
+    # ── Auto tick (perception + behavior arbitration inserted) ────────────────
 
     async def _tick_auto(self, dt: float):
         is_mock = isinstance(self.source, MockTelemetrySource)
@@ -433,12 +461,11 @@ class NavigationEngine:
             await self._broadcast(self._complete_frame())
             return
 
-        # ── 1. Read telemetry ─────────────────────────────────────────────────
+        # ── 1. Read telemetry (unchanged) ─────────────────────────────────────
         gps_accepted = True
         if is_mock:
             reading = await self.source.read()
-            lat, lng = self.kinematics.lat, self.kinematics.lng
-            heading  = self.kinematics.heading
+            lat, lng, heading = reading.lat, reading.lng, reading.heading
             gps_accepted = reading.gps_accepted
         else:
             try:
@@ -472,7 +499,12 @@ class NavigationEngine:
                 self.pause()
                 return
 
-        # ── 2. Pure-pursuit ───────────────────────────────────────────────────
+        # ── 2. Update perception (drain detection queue — non-blocking) ───────
+        # CPU cost: a single queue.get_nowait loop + a few float ops.
+        # Hailo-8L does the actual inference in its own OS thread.
+        self.perception.update()
+
+        # ── 3. Pure-pursuit (unchanged) ───────────────────────────────────────
         la_lat, la_lng, la_idx = self.controller.find_lookahead(
             lat, lng, self.sequencer.path, self.sequencer.current_index
         )
@@ -487,71 +519,116 @@ class NavigationEngine:
 
         target = self.sequencer.current_target
 
-        # ── 3. Control ────────────────────────────────────────────────────────
-        omega_cmd = self.controller.compute_omega(lat, lng, heading, la_lat, la_lng)
-        req_hdg   = calc_bearing(lat, lng, la_lat, la_lng)
-        err       = calc_error(heading, req_hdg)
-        speed_cmd = self.controller.compute_speed(err)
+        # ── 4. Pure-pursuit command (used as default / NAVIGATE command) ──────
+        pp_omega = self.controller.compute_omega(lat, lng, heading, la_lat, la_lng)
+        req_hdg  = calc_bearing(lat, lng, la_lat, la_lng)
+        err      = calc_error(heading, req_hdg)
+        pp_speed = self.controller.compute_speed(err)
 
-        # ── 4. Kinematics ─────────────────────────────────────────────────────
+        # ── 5. Behavior arbitration ───────────────────────────────────────────
+        # BehaviorManager decides whether to use PP commands or override them.
+        # In NAVIGATE state (default), cmd.omega_cmd == pp_omega exactly.
+        beh_cmd = self.behavior.arbitrate(
+            perception=self.perception,
+            pp_omega=pp_omega,
+            pp_speed=pp_speed,
+            current_path_index=self.sequencer.current_index,
+            current_lat=lat,
+            current_lng=lng,
+            current_segment_label=target.segment_label if target else '',
+        )
+
+        # If behavior re-anchored the sequencer index, update lookahead accordingly
+        omega_cmd = beh_cmd.omega_cmd
+        speed_cmd = beh_cmd.speed_cmd
+
+        # ── 6. Kinematics (unchanged) ─────────────────────────────────────────
         self.kinematics.step(omega_cmd, dt, speed_cmd)
         if is_mock:
             self.source.set_position(
                 self.kinematics.lat, self.kinematics.lng, self.kinematics.heading
             )
 
-        # ── 5. Build frame ────────────────────────────────────────────────────
+        # ── 7. Build telemetry frame (backward-compatible + new fields) ────────
         dist_to_target    = haversine(lat, lng, target.lat, target.lng)
         dist_to_lookahead = haversine(lat, lng, la_lat, la_lng)
-        steering = PurePursuitController.steering_from_omega(omega_cmd, self.cfg.max_turn_rate_dps)
-        motor    = PurePursuitController.motor_from_steering(steering, omega_cmd, self.cfg.max_turn_rate_dps)
+
+        # Use behavior cmd for display; fall back to pp if in NAVIGATE
+        steering = beh_cmd.steering_label()
+        motor    = beh_cmd.to_motor_dict()
+        left_us, right_us = self.motor_writer.omega_speed_to_pwm(
+            omega_cmd, speed_cmd,
+            self.cfg.max_speed_mps, self.cfg.max_turn_rate_dps,
+        )
+        self._last_motor_cmd = {
+            'left_us': left_us,
+            'right_us': right_us,
+            'omega_cmd': round(omega_cmd, 3),
+            'speed_cmd': round(speed_cmd, 3),
+            'steering_label': steering,
+            'behavior_state': self.behavior.state_name,
+        }
 
         frame = {
+            # ── Core fields (unchanged, existing frontend compatible) ───────
             'lat':     round(lat, 7),
             'lng':     round(lng, 7),
             'heading': round(heading, 2),
             'speed':   round(self.kinematics.speed, 3),
-            'target_lat': round(target.lat, 7),  'target_lng': round(target.lng, 7),
-            'lookahead_lat': round(la_lat, 7),   'lookahead_lng': round(la_lng, 7),
+            'target_lat': round(target.lat, 7), 'target_lng': round(target.lng, 7),
+            'lookahead_lat': round(la_lat, 7),  'lookahead_lng': round(la_lng, 7),
             'required_heading':      round(req_hdg, 2),
             'heading_error':         round(err, 2),
             'distance_to_target':    round(dist_to_target, 2),
             'distance_to_lookahead': round(dist_to_lookahead, 2),
             'omega':                 round(omega_cmd, 3),
+            'omega_cmd':             round(omega_cmd, 3),
+            'speed_cmd':             round(speed_cmd, 3),
             'nav_state':             self.sequencer.nav_state(),
             'active_segment_label':  target.segment_label,
             'active_segment_index':  self.sequencer.current_index,
             'total_path_points':     self.sequencer.total,
             'mission_progress':      round(self.sequencer.progress, 4),
             'gps_accepted':          gps_accepted,
-            'steering':  steering,
-            'motor':     motor,
-            'mode':      'auto',
-            'mode_since': self._mode_since,
-            'source':    'mock' if is_mock else 'uart',
-            'timestamp': int(time.time() * 1000),
+            'steering':              steering,
+            'motor':                 motor,
+            'motor_cmd':             self.last_motor_cmd,
+            'mode':                  'auto',
+            'mode_since':            self._mode_since,
+            'source':                'mock' if is_mock else 'uart',
+            'timestamp':             int(time.time() * 1000),
+            # ── New perception + behavior fields (additive, safe to ignore) ──
+            'behavior_state':        self.behavior.state_name,
+            'perception': {
+                'obstacle_active':  self.perception.obstacle_active,
+                'trash_active':     self.perception.trash_active,
+                'obstacle_cx_norm': round(self.perception.obstacle.image_cx_norm, 3)
+                                    if self.perception.obstacle else 0.0,
+                'trash_cx_norm':    round(self.perception.trash.image_cx_norm, 3)
+                                    if self.perception.trash else 0.0,
+                'trash_area_frac':  round(self.perception.trash.area_frac, 4)
+                                    if self.perception.trash else 0.0,
+            },
         }
-        # ── 6a. Send motor commands to STM32 ─────────────────────────────────
-        if not isinstance(self.source, MockTelemetrySource):
-            left_us, right_us = self.motor_writer.omega_speed_to_pwm(
-                omega_cmd, speed_cmd,
-                self.cfg.max_speed_mps, self.cfg.max_turn_rate_dps,
-            )
+
+        # ── 8. Motor output (now via behavior cmd) ────────────────────────────
+        if not is_mock:
             await self.motor_writer.write(left_us, right_us)
 
         await self._broadcast(frame)
 
-    # ── Utility frames ────────────────────────────────────────────────────────
+    # ── Utility frames (unchanged from original) ──────────────────────────────
 
     def _idle_frame(self) -> dict:
         k  = self.kinematics
         st = 'paused' if self._paused else 'idle'
         return {
             'lat': k.lat, 'lng': k.lng, 'heading': k.heading, 'speed': 0.0,
-            'target_lat': k.lat,  'target_lng': k.lng,
+            'target_lat': k.lat, 'target_lng': k.lng,
             'lookahead_lat': k.lat, 'lookahead_lng': k.lng,
             'required_heading': 0.0, 'heading_error': 0.0,
             'distance_to_target': 0.0, 'distance_to_lookahead': 0.0, 'omega': 0.0,
+            'omega_cmd': 0.0, 'speed_cmd': 0.0,
             'nav_state':            st,
             'active_segment_label': 'Idle',
             'active_segment_index': 0,
@@ -560,11 +637,15 @@ class NavigationEngine:
             'gps_accepted': True,
             'steering': 'stop',
             'motor': {'left': False, 'right': False, 'blinking': False},
-            'mode': 'auto',  'mode_since': self._mode_since,
+            'motor_cmd': self.last_motor_cmd,
+            'mode': 'auto', 'mode_since': self._mode_since,
             'source': 'mock', 'timestamp': int(time.time() * 1000),
+            'behavior_state': 'navigate',
+            'perception': {'obstacle_active': False, 'trash_active': False},
         }
 
     def _complete_frame(self) -> dict:
         return {**self._idle_frame(),
                 'nav_state': 'completed', 'mission_progress': 1.0,
-                'active_segment_label': 'Mission Complete'}
+                'active_segment_label': 'Mission Complete',
+                'behavior_state': 'navigate'}

@@ -1,5 +1,15 @@
 """
 API routes — REST and WebSocket.
+
+Changes from original
+─────────────────────
+1. New /api/debug/perception endpoints for mock detection injection.
+   These are safe to call in production (they are no-ops if MOCK_DETECTIONS
+   is False) and are primarily used during ground validation without hardware.
+
+2. /health now includes perception and behavior status (additive fields).
+
+All original endpoints are UNCHANGED.  No existing frontend calls break.
 """
 
 import asyncio
@@ -30,7 +40,7 @@ def get_engine() -> NavigationEngine:
     return _engine
 
 
-# ── Mission upload ─────────────────────────────────────────────────────────────
+# ── Mission upload (unchanged) ─────────────────────────────────────────────────
 
 @router.post("/api/mission")
 async def upload_mission(mission: MissionJSON):
@@ -55,7 +65,7 @@ async def upload_mission(mission: MissionJSON):
     })
 
 
-# ── Auto mission commands ──────────────────────────────────────────────────────
+# ── Auto mission commands (unchanged) ─────────────────────────────────────────
 
 class CommandBody(BaseModel):
     command: str
@@ -65,7 +75,6 @@ async def command(body: CommandBody):
     engine = get_engine()
     cmd = body.command.lower().strip()
 
-    # Block start/resume if RC has hardware control
     if _rc_monitor and _rc_monitor._rc_active and cmd in ("start", "resume"):
         raise HTTPException(
             status_code=409,
@@ -97,16 +106,10 @@ async def command(body: CommandBody):
     return {"ok": True, "command": cmd}
 
 
-# ── Manual mode endpoints ──────────────────────────────────────────────────────
+# ── Manual mode endpoints (unchanged) ─────────────────────────────────────────
 
 @router.post("/api/manual/enter")
 async def manual_enter():
-    """
-    Enter software manual override via dashboard.
-    Note: if RC transmitter is active, hardware already has control —
-    this call is informational only (engine will already be in MANUAL
-    from the RC monitor's enter_manual() call).
-    """
     engine = get_engine()
     if engine._mode == OperatingMode.MANUAL:
         return {"ok": True, "message": "Already in manual mode."}
@@ -117,22 +120,14 @@ async def manual_enter():
 
 @router.post("/api/manual/exit")
 async def manual_exit():
-    """
-    Exit software manual mode and return to AUTO/paused.
-    Blocked if RC transmitter is still active — hardware still has control.
-    """
     engine = get_engine()
-
-    # If RC is still active, don't allow software exit
     if _rc_monitor and _rc_monitor._rc_active:
         raise HTTPException(
             status_code=409,
             detail="RC transmitter is still active. Switch transmitter to AUTO position first.",
         )
-
     if engine._mode == OperatingMode.AUTO:
         return {"ok": True, "message": "Already in AUTO mode."}
-
     engine.resume_auto()
     log.info("Manual mode exited via dashboard API")
     return {
@@ -150,24 +145,17 @@ class MotorBody(BaseModel):
 
 @router.post("/api/manual/motor")
 async def manual_motor(body: MotorBody):
-    """
-    Set dashboard manual motor state (software override only).
-    Has no effect on hardware when RC transmitter is in control —
-    the RC receiver drives the ESCs directly, bypassing the Pi entirely.
-    """
     engine = get_engine()
     if engine._mode != OperatingMode.MANUAL:
         raise HTTPException(
             status_code=409,
             detail="Not in MANUAL mode. Call /api/manual/enter first.",
         )
-
     rc_has_control = _rc_monitor and _rc_monitor._rc_active
     engine.manual_set_left(body.left)
     engine.manual_set_right(body.right)
     if body.throttle is not None:
         engine.manual_set_throttle(body.throttle)
-
     return {
         "ok": True,
         "left": body.left,
@@ -180,14 +168,13 @@ async def manual_motor(body: MotorBody):
 
 @router.post("/api/manual/stop")
 async def manual_stop():
-    """Emergency stop in software. Stays in manual mode."""
     engine = get_engine()
     engine.manual_ctrl.stop()
     log.info("Manual emergency stop via dashboard")
     return {"ok": True, "stopped": True}
 
 
-# ── Health ─────────────────────────────────────────────────────────────────────
+# ── Health (extended — additive, backward compatible) ─────────────────────────
 
 @router.get("/health")
 async def health():
@@ -196,7 +183,75 @@ async def health():
     return {"status": "ok", **engine.health_dict(), "rc": rc_status}
 
 
-# ── WebSocket ──────────────────────────────────────────────────────────────────
+# ── Debug / perception mock injection ─────────────────────────────────────────
+# These endpoints exist for ground validation without Hailo hardware.
+# They inject observations directly into the PerceptionManager, bypassing
+# the Hailo queue entirely.  They have NO effect on telemetry routing —
+# all decision-making remains onboard.
+
+class MockObstacleBody(BaseModel):
+    cx_norm:    float = 0.0    # [-1, +1], 0 = frame centre
+    width_frac: float = 0.20   # [0, 1], fraction of frame width
+
+class MockTrashBody(BaseModel):
+    cx_norm:   float = 0.05   # [-1, +1]
+    area_frac: float = 0.06   # [0, 1]
+
+@router.post("/api/debug/inject_obstacle")
+async def debug_inject_obstacle(body: MockObstacleBody):
+    """
+    Inject a mock obstacle observation for testing without Hailo hardware.
+    The BehaviorManager will immediately respond as if Hailo detected an obstacle.
+    """
+    engine = get_engine()
+    engine.perception.inject_mock_obstacle(
+        cx_norm=body.cx_norm,
+        width_frac=body.width_frac,
+    )
+    log.info("Debug: mock obstacle injected",
+             cx_norm=body.cx_norm, width_frac=body.width_frac)
+    return {"ok": True, "injected": "obstacle",
+            "cx_norm": body.cx_norm, "width_frac": body.width_frac}
+
+
+@router.post("/api/debug/inject_trash")
+async def debug_inject_trash(body: MockTrashBody):
+    """
+    Inject a mock trash observation for testing without Hailo hardware.
+    The BehaviorManager will immediately respond as if Hailo detected trash.
+    """
+    engine = get_engine()
+    engine.perception.inject_mock_trash(
+        cx_norm=body.cx_norm,
+        area_frac=body.area_frac,
+    )
+    log.info("Debug: mock trash injected",
+             cx_norm=body.cx_norm, area_frac=body.area_frac)
+    return {"ok": True, "injected": "trash",
+            "cx_norm": body.cx_norm, "area_frac": body.area_frac}
+
+
+@router.post("/api/debug/clear_mock")
+async def debug_clear_mock():
+    """Clear any injected mock observations."""
+    engine = get_engine()
+    engine.perception.clear_mock()
+    log.info("Debug: mock observations cleared")
+    return {"ok": True, "cleared": True}
+
+
+@router.get("/api/debug/perception")
+async def debug_perception_status():
+    """Return current perception and behavior status for dashboard debug panel."""
+    engine = get_engine()
+    return {
+        "ok": True,
+        **engine.perception.status_dict(),
+        **engine.behavior.status_dict(),
+    }
+
+
+# ── WebSocket (unchanged) ──────────────────────────────────────────────────────
 
 @router.websocket("/ws/telemetry")
 async def ws_telemetry(websocket: WebSocket):
@@ -209,8 +264,8 @@ async def ws_telemetry(websocket: WebSocket):
             await asyncio.sleep(5)
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("WS handler error", exc=str(e))
     finally:
         engine.remove_client(websocket)
         log.info("WS client disconnected", clients=len(engine._clients))

@@ -8,7 +8,7 @@ def haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     dp = math.radians(lat2 - lat1)
     dl = math.radians(lng2 - lng1)
     a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
 
 def bearing(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Initial bearing in degrees (0-360) from point 1 to point 2."""

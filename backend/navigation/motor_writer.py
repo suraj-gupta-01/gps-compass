@@ -212,7 +212,7 @@ class MotorCommandWriter:
         """Async write — non-blocking, uses executor for serial I/O."""
         if self.mock:
             return
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(None, self._write_sync, left_us, right_us)
         except Exception as e:

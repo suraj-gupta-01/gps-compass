@@ -1,0 +1,139 @@
+{"t": 1782844163.493, "lvl": "INFO", "msg": "AeroNav backend starting"}
+{"t": 1782844163.495, "lvl": "INFO", "msg": "MotorCommandWriter in MOCK mode \u2014 no serial output"}
+{"t": 1782844163.496, "lvl": "INFO", "msg": "HailoRunner starting in MOCK mode"}
+{"t": 1782844163.497, "lvl": "INFO", "msg": "Navigation engine started (with perception stack)"}
+{"t": 1782844163.498, "lvl": "INFO", "msg": "RC monitor running in MOCK mode \u2014 GPIO pin not monitored"}
+{"t": 1782844187.284, "lvl": "INFO", "msg": "AeroNav backend starting"}
+{"t": 1782844187.285, "lvl": "INFO", "msg": "MotorCommandWriter in MOCK mode \u2014 no serial output"}
+{"t": 1782844187.285, "lvl": "INFO", "msg": "HailoRunner starting in MOCK mode"}
+{"t": 1782844187.287, "lvl": "INFO", "msg": "Navigation engine started (with perception stack)"}
+{"t": 1782844187.288, "lvl": "INFO", "msg": "RC monitor running in MOCK mode \u2014 GPIO pin not monitored"}
+{"t": 1782844187.29, "lvl": "INFO", "msg": "AeroNav backend shutting down"}
+{"t": 1782844586.758, "lvl": "INFO", "msg": "AeroNav backend starting"}
+{"t": 1782844586.76, "lvl": "INFO", "msg": "MotorCommandWriter in MOCK mode \u2014 no serial output"}
+{"t": 1782844586.761, "lvl": "INFO", "msg": "HailoRunner starting in MOCK mode"}
+{"t": 1782844586.762, "lvl": "INFO", "msg": "Navigation engine started (with perception stack)"}
+{"t": 1782844586.763, "lvl": "INFO", "msg": "RC monitor running in MOCK mode \u2014 GPIO pin not monitored"}
+{"t": 1782844612.956, "lvl": "INFO", "msg": "WS client connected", "clients": 1}
+{"t": 1782844717.015, "lvl": "INFO", "msg": "Mission loaded while running \u2014 paused for reload"}
+{"t": 1782844717.018, "lvl": "INFO", "msg": "Mission loaded", "points": 152, "segments": 1}
+{"t": 1782844717.019, "lvl": "INFO", "msg": "Mission uploaded", "points": 152, "segments": 1}
+{"t": 1782844726.933, "lvl": "INFO", "msg": "Mission loaded", "points": 52, "segments": 1}
+{"t": 1782844726.934, "lvl": "INFO", "msg": "Mission uploaded", "points": 52, "segments": 1}
+{"t": 1782844741.515, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782844741.517, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782844742.733, "lvl": "INFO", "msg": "Mission complete", "total": 52}
+{"t": 1782844800.485, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844800.486, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844802.142, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844802.143, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844803.087, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844803.087, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844803.959, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844803.96, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844804.813, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844804.814, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844820.821, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782844820.822, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782844822.001, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782844822.002, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782844823.044, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782844823.045, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782844824.397, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782844824.398, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782844825.638, "lvl": "INFO", "msg": "Mission complete", "total": 52}
+{"t": 1782844830.774, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844830.775, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844870.978, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844870.979, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844871.974, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844871.976, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844872.674, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844872.675, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844873.83, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844873.831, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844888.579, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844888.581, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844889.449, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844889.45, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844890.136, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844890.138, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844891.163, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844891.164, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782844892.308, "lvl": "INFO", "msg": "Mission resumed (AUTO)", "index": 52}
+{"t": 1782844892.31, "lvl": "INFO", "msg": "Command received", "command": "resume"}
+{"t": 1782845127.984, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782845128.026, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782845130.89, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782845130.891, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782845132.196, "lvl": "INFO", "msg": "Mission complete", "total": 52}
+{"t": 1782845137.753, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782845137.754, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782845139.438, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782845139.439, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782845140.899, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782845140.9, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782845142.158, "lvl": "INFO", "msg": "Mission complete", "total": 52}
+{"t": 1782845198.948, "lvl": "INFO", "msg": "WS client connected", "clients": 1}
+{"t": 1782845204.122, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782845204.123, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782845205.133, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782845205.134, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782845206.413, "lvl": "INFO", "msg": "Mission complete", "total": 52}
+{"t": 1782845283.955, "lvl": "INFO", "msg": "WS client disconnected", "clients": 0}
+{"t": 1782845284.168, "lvl": "INFO", "msg": "WS client disconnected", "clients": 0}
+{"t": 1782846461.684, "lvl": "INFO", "msg": "AeroNav backend starting"}
+{"t": 1782846461.685, "lvl": "INFO", "msg": "MotorCommandWriter in MOCK mode \u2014 no serial output"}
+{"t": 1782846461.686, "lvl": "INFO", "msg": "HailoRunner starting in MOCK mode"}
+{"t": 1782846461.688, "lvl": "INFO", "msg": "Navigation engine started (with perception stack)"}
+{"t": 1782846461.688, "lvl": "INFO", "msg": "RC monitor running in MOCK mode \u2014 GPIO pin not monitored"}
+{"t": 1782916106.874, "lvl": "INFO", "msg": "AeroNav backend starting"}
+{"t": 1782916106.876, "lvl": "INFO", "msg": "MotorCommandWriter in MOCK mode \u2014 no serial output"}
+{"t": 1782916106.879, "lvl": "INFO", "msg": "HailoRunner starting in MOCK mode"}
+{"t": 1782916106.882, "lvl": "INFO", "msg": "Navigation engine started (with perception stack)"}
+{"t": 1782916106.883, "lvl": "INFO", "msg": "RC monitor running in MOCK mode \u2014 GPIO pin not monitored"}
+{"t": 1782916236.601, "lvl": "INFO", "msg": "Mission loaded while running \u2014 paused for reload"}
+{"t": 1782916236.601, "lvl": "INFO", "msg": "Mission loaded", "points": 86, "segments": 1}
+{"t": 1782916236.612, "lvl": "INFO", "msg": "Mission uploaded", "points": 86, "segments": 1}
+{"t": 1782916243.498, "lvl": "INFO", "msg": "Mission loaded", "points": 24, "segments": 1}
+{"t": 1782916243.5, "lvl": "INFO", "msg": "Mission uploaded", "points": 24, "segments": 1}
+{"t": 1782916259.481, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782916259.491, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782916259.559, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "navigate", "to_state": "track_trash", "path_index": 1}
+{"t": 1782916259.561, "lvl": "INFO", "msg": "TrashTracker: approach started", "path_index": 1}
+{"t": 1782916260.158, "lvl": "INFO", "msg": "Mission complete", "total": 24}
+{"t": 1782916315.434, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782916315.438, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782916324.914, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782916324.914, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782916324.982, "lvl": "INFO", "msg": "TrashTracker: approach timeout", "elapsed_s": 65.4}
+{"t": 1782916325.094, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "track_trash", "to_state": "return_to_path", "path_index": 6}
+{"t": 1782916325.096, "lvl": "INFO", "msg": "BehaviorManager re-anchor", "from_index": 1, "to_index": 23}
+{"t": 1782916325.098, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "return_to_path", "to_state": "navigate", "path_index": 6}
+{"t": 1782916325.519, "lvl": "INFO", "msg": "Mission complete", "total": 24}
+{"t": 1782916423.136, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782916423.136, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782916425.669, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782916425.673, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782916426.716, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782916426.718, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782916426.776, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "navigate", "to_state": "track_trash", "path_index": 1}
+{"t": 1782916426.778, "lvl": "INFO", "msg": "TrashTracker: approach started", "path_index": 1}
+{"t": 1782916427.3, "lvl": "INFO", "msg": "Mission complete", "total": 24}
+{"t": 1782918417.82, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782918417.965, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782918418.321, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782918418.485, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782918418.501, "lvl": "INFO", "msg": "TrashTracker: approach timeout", "elapsed_s": 1991.7}
+{"t": 1782918418.624, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "track_trash", "to_state": "return_to_path", "path_index": 6}
+{"t": 1782918418.63, "lvl": "INFO", "msg": "BehaviorManager re-anchor", "from_index": 1, "to_index": 23}
+{"t": 1782918418.637, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "return_to_path", "to_state": "navigate", "path_index": 6}
+{"t": 1782918419.338, "lvl": "INFO", "msg": "Mission complete", "total": 24}
+{"t": 1782918475.922, "lvl": "INFO", "msg": "Mission reset"}
+{"t": 1782918475.931, "lvl": "INFO", "msg": "Command received", "command": "reset"}
+{"t": 1782918476.91, "lvl": "INFO", "msg": "Mission started"}
+{"t": 1782918476.927, "lvl": "INFO", "msg": "Command received", "command": "start"}
+{"t": 1782918476.953, "lvl": "INFO", "msg": "BehaviorManager state transition", "from_state": "navigate", "to_state": "track_trash", "path_index": 1}
+{"t": 1782918476.981, "lvl": "INFO", "msg": "TrashTracker: approach started", "path_index": 1}
+{"t": 1782918477.661, "lvl": "INFO", "msg": "Mission complete", "total": 24}
+{"t": 1782919926.534, "lvl": "INFO", "msg": "AeroNav backend shutting down"}
